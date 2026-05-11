@@ -1,0 +1,486 @@
+// schema.prisma
+// Production Video Automation — data model V1 (local-first, SaaS-ready)
+// See docs in conversation history for design rationale.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ════════════════════════════════════════════════════════════════
+// IDENTITY & TENANCY
+// ════════════════════════════════════════════════════════════════
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  members   OrgMember[]
+  projects  Project[]
+  auditLogs AuditLog[]
+
+  @@map("organizations")
+}
+
+model User {
+  id        String    @id @default(cuid())
+  email     String    @unique
+  name      String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships     OrgMember[]
+  createdProjects Project[]   @relation("ProjectCreator")
+  triggeredJobs   Job[]       @relation("JobTriggeredBy")
+  auditLogs       AuditLog[]
+
+  @@map("users")
+}
+
+model OrgMember {
+  id        String   @id @default(cuid())
+  orgId     String
+  userId    String
+  role      OrgRole  @default(MEMBER)
+  createdAt DateTime @default(now())
+
+  org  Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  user User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([orgId, userId])
+  @@index([userId])
+  @@map("org_members")
+}
+
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// ════════════════════════════════════════════════════════════════
+// PROJECTS
+// ════════════════════════════════════════════════════════════════
+
+model Project {
+  id          String        @id @default(cuid())
+  orgId       String
+  createdById String
+  title       String
+  userPrompt  String
+  status      ProjectStatus @default(DRAFT)
+
+  // Creative parameters
+  format            Format   @default(VERTICAL_9_16)
+  durationTargetSec Int      @default(60)
+  sourceLocale      String   @default("fr-FR")
+  targetLocales     String[] @default([])
+  styleHint         String?
+  platformHint      String?
+
+  // LLM-generated artifacts
+  scriptJson     Json?
+  storyboardJson Json?
+
+  // SEO output
+  seoTitle       String?
+  seoDescription String?
+  seoHashtags    String[] @default([])
+
+  // Workflow tracking (Temporal)
+  temporalWorkflowId String?
+  temporalRunId      String?
+
+  // Cost aggregates (denormalized for fast dashboards)
+  totalGpuSeconds  Int @default(0)
+  totalCostCredits Int @default(0)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  createdBy User         @relation("ProjectCreator", fields: [createdById], references: [id])
+
+  scenes     Scene[]
+  characters Character[]
+  styles     StylePreset[]
+  assets     Asset[]
+  jobs       Job[]
+  renders    Render[]
+  auditLogs  AuditLog[]
+
+  @@index([orgId, status])
+  @@index([createdById])
+  @@map("projects")
+}
+
+enum ProjectStatus {
+  DRAFT
+  PLANNING
+  GENERATING
+  RENDERING
+  COMPLETED
+  FAILED
+  ARCHIVED
+}
+
+enum Format {
+  VERTICAL_9_16
+  HORIZONTAL_16_9
+  SQUARE_1_1
+}
+
+// ════════════════════════════════════════════════════════════════
+// SCENES
+// ════════════════════════════════════════════════════════════════
+
+model Scene {
+  id          String @id @default(cuid())
+  projectId   String
+  idx         Int
+  durationSec Int
+
+  narrativeGoal     String
+  visualDescription String
+  mood              String?
+  location          String?
+  cameraShotType    String?
+  cameraMovement    String?
+  cameraLens        String?
+  lighting          String?
+
+  imagePrompt     String?
+  videoPrompt     String?
+  musicPromptHint String?
+  sfxHints        String[] @default([])
+
+  transitionIn  String?
+  transitionOut String?
+
+  status SceneStatus @default(PENDING)
+
+  selectedImageAssetId   String?
+  selectedVideoAssetId   String?
+  selectedLipSyncAssetId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project    Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  characters SceneCharacter[]
+  locales    SceneLocale[]
+  assets     Asset[]
+  jobs       Job[]
+
+  selectedImage   Asset? @relation("SceneSelectedImage", fields: [selectedImageAssetId], references: [id], onDelete: SetNull)
+  selectedVideo   Asset? @relation("SceneSelectedVideo", fields: [selectedVideoAssetId], references: [id], onDelete: SetNull)
+  selectedLipSync Asset? @relation("SceneSelectedLipSync", fields: [selectedLipSyncAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, idx])
+  @@index([projectId, status])
+  @@map("scenes")
+}
+
+enum SceneStatus {
+  PENDING
+  GENERATING
+  READY
+  FAILED
+}
+
+// ════════════════════════════════════════════════════════════════
+// CONSISTENCY (characters, styles)
+// ════════════════════════════════════════════════════════════════
+
+model Character {
+  id                    String   @id @default(cuid())
+  projectId             String
+  name                  String
+  descriptionPrompt     String
+  referenceImageAssetId String?
+  loraRef               String?
+  createdAt             DateTime @default(now())
+
+  project        Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  referenceImage Asset?           @relation("CharacterReference", fields: [referenceImageAssetId], references: [id], onDelete: SetNull)
+  scenes         SceneCharacter[]
+
+  @@unique([projectId, name])
+  @@map("characters")
+}
+
+model SceneCharacter {
+  sceneId     String
+  characterId String
+
+  scene     Scene     @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  character Character @relation(fields: [characterId], references: [id], onDelete: Cascade)
+
+  @@id([sceneId, characterId])
+  @@map("scene_characters")
+}
+
+model StylePreset {
+  id             String   @id @default(cuid())
+  projectId      String
+  name           String
+  basePrompt     String
+  negativePrompt String?
+  seed           Int?
+  loraRefs       String[] @default([])
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, name])
+  @@map("style_presets")
+}
+
+// ════════════════════════════════════════════════════════════════
+// LOCALIZATION (multilingual voice & subtitles per scene)
+// ════════════════════════════════════════════════════════════════
+
+model SceneLocale {
+  id      String @id @default(cuid())
+  sceneId String
+  locale  String
+
+  voiceText        String
+  dialogueText     String?
+  subtitleText     String?
+  voiceSpeakerType String?
+  voiceEmotion     String?
+  voiceSpeed       Float   @default(1.0)
+
+  voiceAssetId    String?
+  lipSyncAssetId  String?
+  subtitleAssetId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  scene         Scene  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  voiceAsset    Asset? @relation("LocaleVoice", fields: [voiceAssetId], references: [id], onDelete: SetNull)
+  lipSyncAsset  Asset? @relation("LocaleLipSync", fields: [lipSyncAssetId], references: [id], onDelete: SetNull)
+  subtitleAsset Asset? @relation("LocaleSubtitle", fields: [subtitleAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([sceneId, locale])
+  @@index([locale])
+  @@map("scene_locales")
+}
+
+// ════════════════════════════════════════════════════════════════
+// ASSETS — every binary, versioned, immutable
+// ════════════════════════════════════════════════════════════════
+
+model Asset {
+  id        String    @id @default(cuid())
+  projectId String
+  sceneId   String?
+  kind      AssetKind
+  version   Int       @default(1)
+
+  s3Bucket  String
+  s3Key     String @unique
+  mime      String
+  sizeBytes Int
+  checksum  String
+
+  durationMs Int?
+  width      Int?
+  height     Int?
+
+  generatedByJobId String?
+  modelName        String?
+  modelVersion     String?
+  workflowRef      String?
+  promptUsed       String?
+  seed             Int?
+  parameters       Json?
+
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  project        Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene          Scene?  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  generatedByJob Job?    @relation("JobOutputs", fields: [generatedByJobId], references: [id], onDelete: SetNull)
+
+  // Reverse relations
+  selectedAsImageIn   Scene[]       @relation("SceneSelectedImage")
+  selectedAsVideoIn   Scene[]       @relation("SceneSelectedVideo")
+  selectedAsLipSyncIn Scene[]       @relation("SceneSelectedLipSync")
+  characterRefIn      Character[]   @relation("CharacterReference")
+  voiceForLocales     SceneLocale[] @relation("LocaleVoice")
+  lipSyncForLocales   SceneLocale[] @relation("LocaleLipSync")
+  subtitleForLocales  SceneLocale[] @relation("LocaleSubtitle")
+  renderOutputs       Render[]      @relation("RenderOutput")
+
+  @@unique([projectId, sceneId, kind, version])
+  @@index([projectId, kind])
+  @@index([sceneId, kind])
+  @@index([checksum])
+  @@map("assets")
+}
+
+enum AssetKind {
+  REFERENCE_IMAGE
+  IMAGE
+  VIDEO_CLIP
+  VOICE_OVER
+  DIALOGUE
+  MUSIC
+  SFX
+  LIPSYNC_VIDEO
+  SUBTITLE_VTT
+  PROJECT_MUSIC
+  MASTER_AUDIO_MIX
+  MASTER_VIDEO
+  THUMBNAIL
+}
+
+// ════════════════════════════════════════════════════════════════
+// JOBS — every IA call, traceable to Temporal
+// ════════════════════════════════════════════════════════════════
+
+model Job {
+  id        String    @id @default(cuid())
+  projectId String
+  sceneId   String?
+  kind      JobKind
+  status    JobStatus @default(QUEUED)
+
+  temporalWorkflowId String?
+  temporalRunId      String?
+  temporalActivityId String?
+  idempotencyKey     String? @unique
+
+  inputJson    Json
+  outputJson   Json?
+  errorMessage String?
+
+  modelName    String?
+  modelVersion String?
+  workflowRef  String?
+  gpuSeconds   Int     @default(0)
+  costCredits  Int     @default(0)
+
+  attempts   Int       @default(0)
+  startedAt  DateTime?
+  finishedAt DateTime?
+
+  triggeredById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  scene       Scene?  @relation(fields: [sceneId], references: [id], onDelete: Cascade)
+  triggeredBy User?   @relation("JobTriggeredBy", fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  outputAssets Asset[] @relation("JobOutputs")
+
+  @@index([projectId, status])
+  @@index([sceneId, kind])
+  @@index([temporalWorkflowId])
+  @@map("jobs")
+}
+
+enum JobKind {
+  PLAN_SCRIPT
+  GEN_STORYBOARD
+  GEN_IMAGE
+  GEN_VIDEO
+  GEN_VOICE
+  GEN_DIALOGUE
+  GEN_MUSIC
+  GEN_SFX
+  RUN_LIPSYNC
+  TRANSLATE
+  GEN_SUBTITLES
+  RENDER_SCENE
+  RENDER_FINAL
+  MUX_AUDIO
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  RETRYING
+}
+
+// ════════════════════════════════════════════════════════════════
+// RENDERS — final video outputs (1 per locale × format)
+// ════════════════════════════════════════════════════════════════
+
+model Render {
+  id        String       @id @default(cuid())
+  projectId String
+  locale    String
+  format    Format
+  status    RenderStatus @default(PENDING)
+
+  outputAssetId String? @unique
+  durationSec   Int?
+  codec         String?
+  resolution    String?
+  fps           Int?
+  bitrateKbps   Int?
+
+  errorMessage String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project     Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  outputAsset Asset?  @relation("RenderOutput", fields: [outputAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([projectId, locale, format])
+  @@index([projectId, status])
+  @@map("renders")
+}
+
+enum RenderStatus {
+  PENDING
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+// ════════════════════════════════════════════════════════════════
+// AUDIT
+// ════════════════════════════════════════════════════════════════
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  orgId     String
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String
+  payload   Json?
+  projectId String?
+  createdAt DateTime @default(now())
+
+  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  actor   User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  project Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  @@index([orgId, createdAt(sort: Desc)])
+  @@index([entity, entityId])
+  @@index([projectId])
+  @@map("audit_logs")
+}

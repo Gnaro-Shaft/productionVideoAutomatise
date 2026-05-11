@@ -1,0 +1,33 @@
+{
+  "name": "@pva/orchestrator",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Temporal worker — orchestrates the AI video pipeline",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "trigger:test": "tsx src/scripts/trigger-test.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'TODO'",
+    "clean": "rm -rf dist .turbo"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.700.0",
+    "@aws-sdk/s3-request-presigner": "^3.700.0",
+    "ffmpeg-static": "^5.2.0",
+    "@pva/shared-types": "workspace:*",
+    "@prisma/client": "^6.1.0",
+    "@temporalio/activity": "^1.11.7",
+    "@temporalio/client": "^1.11.7",
+    "@temporalio/worker": "^1.11.7",
+    "@temporalio/workflow": "^1.11.7",
+    "dotenv": "^16.4.7",
+    "ioredis": "^5.4.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

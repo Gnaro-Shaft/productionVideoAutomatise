@@ -1,0 +1,41 @@
+{
+  "name": "production-video-automatise",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source AI video production pipeline — local-first, SaaS-ready",
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "clean": "turbo run clean",
+    "dev:up": "docker compose -f infra/docker-compose.yml up -d",
+    "dev:down": "docker compose -f infra/docker-compose.yml down",
+    "dev:logs": "docker compose -f infra/docker-compose.yml logs -f",
+    "dev:reset": "docker compose -f infra/docker-compose.yml down -v",
+    "dev:status": "docker compose -f infra/docker-compose.yml ps",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:reset": "prisma migrate reset",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "db:format": "prisma format",
+    "db:validate": "prisma validate"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "dotenv": "^16.4.7",
+    "prisma": "^6.1.0",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.1.0"
+  }
+}

@@ -1,0 +1,111 @@
+# Local dev infrastructure for productionVideoAutomatise
+# Usage from project root:
+#   pnpm dev:up      # start everything (detached)
+#   pnpm dev:down    # stop containers (volumes preserved)
+#   pnpm dev:logs    # follow logs
+#   pnpm dev:reset   # nuke containers AND volumes (full reset)
+#
+# Notes:
+# - Postgres hosts both the app DB (`pva`) and Temporal's internal DBs.
+# - GPU-bound services (ComfyUI, Ollama, voice/music/sfx/lipsync) run NATIVELY on the Mac,
+#   not in this compose — Docker Desktop on macOS does not expose Apple Silicon GPU.
+
+name: pva
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: pva-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pva
+      POSTGRES_PASSWORD: pva
+      POSTGRES_DB: pva
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pva -d pva"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pva-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # ── S3-compatible object storage (assets) ─────────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: pva-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web Console (http://localhost:9001)
+    volumes:
+      - minio_data:/data
+
+  # One-shot init: creates the `pva-assets` bucket on first start
+  minio-init:
+    image: minio/mc:latest
+    container_name: pva-minio-init
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until /usr/bin/mc alias set local http://minio:9000 minioadmin minioadmin; do
+        echo 'waiting for minio...';
+        sleep 2;
+      done;
+      /usr/bin/mc mb --ignore-existing local/pva-assets;
+      echo 'bucket pva-assets ready';
+      "
+
+  # ── Workflow orchestrator (auto-setup mode, shares Postgres) ──────
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: pva-temporal
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: pva
+      POSTGRES_PWD: pva
+      POSTGRES_SEEDS: postgres
+    ports:
+      - "7233:7233"   # gRPC
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: pva-temporal-ui
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_CORS_ORIGINS: http://localhost:3000
+    ports:
+      - "8233:8080"   # http://localhost:8233
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:
