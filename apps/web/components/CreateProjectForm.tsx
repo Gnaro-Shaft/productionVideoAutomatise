@@ -6,17 +6,14 @@ import { useState } from 'react';
 import { api } from '@/lib/api';
 
 /**
- * RFC4122 v4 — works in non-secure contexts (HTTP on LAN IP) where
- * `crypto.randomUUID()` is unavailable. Uses Web Crypto getRandomValues
- * (available on http://<lan-ip> too) with manual byte massaging.
+ * RFC4122 v4 — always uses manual generation. We intentionally do NOT call
+ * `crypto.randomUUID()` because some wallet extensions (MetaMask SES lockdown)
+ * leave it as `typeof "function"` but make it throw at call time.
+ * `crypto.getRandomValues` is widely supported on http://<lan-ip> too.
  */
 function uuidv4(): string {
-  // Prefer the native one when present (HTTPS or localhost).
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
   const buf = new Uint8Array(16);
-  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
     crypto.getRandomValues(buf);
   } else {
     for (let i = 0; i < 16; i++) buf[i] = Math.floor(Math.random() * 256);
