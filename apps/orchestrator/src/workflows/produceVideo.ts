@@ -3,10 +3,13 @@ import {
   defineQuery,
   defineSignal,
   executeChild,
+  ParentClosePolicy,
   proxyActivities,
   setHandler,
+  startChild,
 } from '@temporalio/workflow';
 import type * as activities from '../activities';
+import { enhanceWithVideoWorkflow } from './enhanceWithVideo';
 import { generateProjectMusicWorkflow } from './generateMusic';
 import { generateSceneWorkflow } from './generateScene';
 import { renderProjectWorkflow } from './renderProject';
@@ -128,10 +131,19 @@ export async function produceVideoWorkflow(input: ProduceVideoInput): Promise<vo
       ),
     );
 
-    // 5. Done
+    // 5. Done — master v1 is ready (Ken Burns).
     progress.progress = 1;
     progress.phase = 'completed';
     await dbAct.markCompleted({ projectId });
+
+    // 6. Kick off background video enhancement (detached child workflow).
+    //    Generates LTX clips per scene, then re-renders master v2.
+    //    Parent completes immediately — child runs independently and may take hours.
+    await startChild(enhanceWithVideoWorkflow, {
+      args: [{ projectId, sceneIds }],
+      workflowId: `enhance-${projectId}`,
+      parentClosePolicy: ParentClosePolicy.ABANDON,
+    });
   } catch (err) {
     const reason = cancelled
       ? 'Cancelled by user'

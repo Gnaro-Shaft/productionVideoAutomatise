@@ -1,4 +1,4 @@
-import { proxyActivities } from '@temporalio/workflow';
+import { log, proxyActivities } from '@temporalio/workflow';
 import type * as activities from '../activities';
 
 const dbAct = proxyActivities<typeof activities>({
@@ -16,7 +16,7 @@ const imageAct = proxyActivities<typeof activities>({
 const videoAct = proxyActivities<typeof activities>({
   taskQueue: 'pva-video',
   startToCloseTimeout: '15 minutes',
-  retry: { initialInterval: '30s', maximumAttempts: 2, backoffCoefficient: 2 },
+  retry: { maximumAttempts: 1 }, // Don't retry — slow on Mac, would block everything
 });
 
 const voiceAct = proxyActivities<typeof activities>({
@@ -49,8 +49,9 @@ export async function generateSceneWorkflow(input: GenerateSceneInput): Promise<
   // 1. Image (anchor for the video clip)
   const image = await imageAct.genImage({ sceneId });
 
-  // 2. Video clip from image
-  await videoAct.genVideo({ sceneId, imageAssetId: image.assetId });
+  // 2. Video clip from image — deferred to the background `enhanceWithVideoWorkflow`.
+  //    Main path ships Ken Burns master in ~5 min; LTX clips replace them in v2 later.
+  void videoAct; // keep import alive — enhance workflow uses the same activity
 
   // 3. Voice per locale — V1: source locale only.
   //    Iterating SceneLocale[] will be done once translate + multilingual is wired.

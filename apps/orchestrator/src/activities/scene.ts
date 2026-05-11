@@ -153,13 +153,13 @@ export async function genImage(input: {
 
 // ── REAL: image-to-video via ComfyUI + LTX-Video ─────────────────────
 
-const LTX_NUM_FRAMES = 97; // 97 frames @ 24fps ≈ 4.04 seconds — sweet spot quality/memory on M5 Pro
-const LTX_STEPS = 25;
+const LTX_NUM_FRAMES = 49; // 49 frames @ 24fps ≈ 2 seconds — Remotion stretches via playbackRate
+const LTX_STEPS = 20;
 const LTX_STRENGTH = 0.95;
 
 export async function genVideo(input: {
   sceneId: string;
-  imageAssetId: string;
+  imageAssetId?: string;
   promptOverride?: string;
   seed?: number;
 }): Promise<{ assetId: string; url: string | null }> {
