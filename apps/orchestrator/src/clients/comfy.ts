@@ -115,7 +115,7 @@ export class ComfyClient {
 
     const res = await fetch(`${this.baseUrl}/upload/image`, {
       method: 'POST',
-      body: form as unknown as BodyInit,
+      body: form,
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '<no body>');
