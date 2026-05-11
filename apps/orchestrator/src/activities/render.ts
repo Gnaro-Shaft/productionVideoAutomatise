@@ -179,8 +179,20 @@ export async function runRender(input: {
     throw err;
   }
 
-  // Upload to MinIO.
-  const s3Key = `projects/${render.projectId}/renders/${render.id}.mp4`;
+  // Compute next version: re-renders (enhance workflow) bump v1 -> v2 -> v3 ...
+  const previousMaster = await db().asset.findFirst({
+    where: {
+      projectId: render.projectId,
+      kind: 'MASTER_VIDEO',
+      sceneId: null,
+    },
+    orderBy: { version: 'desc' },
+    select: { version: true },
+  });
+  const nextVersion = (previousMaster?.version ?? 0) + 1;
+
+  // Upload to MinIO — version suffix keeps each render distinct in storage.
+  const s3Key = `projects/${render.projectId}/renders/${render.id}-v${nextVersion}.mp4`;
   const upload = await uploadAsset({
     key: s3Key,
     body: mp4,
@@ -200,7 +212,7 @@ export async function runRender(input: {
         projectId: render.projectId,
         sceneId: null,
         kind: 'MASTER_VIDEO',
-        version: 1,
+        version: nextVersion,
         s3Bucket: upload.bucket,
         s3Key: upload.key,
         mime: 'video/mp4',
