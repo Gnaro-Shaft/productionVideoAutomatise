@@ -18,7 +18,9 @@ import { RedisService } from '../infra/redis.service';
 const REDIS_CHANNEL_PATTERN = 'project:*';
 
 @WebSocketGateway({
-  cors: { origin: '*', credentials: true },
+  // origin: '*' must NOT be combined with credentials: true (browsers reject).
+  // Sockets in V1 don't carry auth cookies, so credentials stays off.
+  cors: { origin: '*' },
   path: '/ws',
 })
 export class WsGateway implements OnModuleInit, OnModuleDestroy {
