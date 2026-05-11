@@ -27,7 +27,14 @@ async function bootstrap(): Promise<void> {
   // @ts-ignore - dynamic import to avoid type friction with @fastify/helmet ESM/CJS
   const helmet = (await import('@fastify/helmet')).default;
   await app.register(helmet, { contentSecurityPolicy: false });
-  app.enableCors({ origin: env.API_CORS_ORIGIN, credentials: true });
+  // Parse comma-separated origins from env (e.g. "http://localhost:3100,http://192.168.1.15:3100")
+  const corsOrigins = env.API_CORS_ORIGIN.split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  app.enableCors({
+    origin: corsOrigins.length > 1 ? corsOrigins : (corsOrigins[0] ?? '*'),
+    credentials: true,
+  });
 
   app.setGlobalPrefix('v1', { exclude: ['ws'] });
   app.useGlobalFilters(new GlobalExceptionFilter());
