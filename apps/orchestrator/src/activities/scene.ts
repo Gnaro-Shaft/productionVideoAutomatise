@@ -154,8 +154,8 @@ export async function genImage(input: {
 // ── REAL: image-to-video via ComfyUI + LTX-Video ─────────────────────
 
 const LTX_NUM_FRAMES = 49; // 49 frames @ 24fps ≈ 2 seconds — Remotion stretches via playbackRate
-const LTX_STEPS = 20;
-const LTX_STRENGTH = 0.95;
+const LTX_STEPS = 30; // raised from 20 — cleaner denoising, less smearing
+const LTX_STRENGTH = 0.85; // lowered from 0.95 — stays closer to source image, kills "melting" artifacts
 
 export async function genVideo(input: {
   sceneId: string;
